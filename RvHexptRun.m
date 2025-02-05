@@ -1,73 +1,59 @@
-function blockSuccess = run_RvH_block(expt, blockNumber, blockType)
-    % run_RvH_block
-    % --------------
-    % Executes a single block of trials within the RvH experiment.
-    %
-    % Parameters:
-    %   expt (struct): Structure containing all experiment-related variables.
-    %   blockNumber (integer): The block number to run.
-    %   blockType (string): 'main' or 'rerun' indicating the type of block.
-    %
-    % Returns:
-    %   blockSuccess (logical): True if the block was completed successfully,
-    %                            False if the block was marked for rerun.
+function runSuccess = RvHexptRun(expt, runNumber, runType)
 
     %% ----------------------- Input Validation -----------------------
     if nargin < 3
-        error('run_RvH_block requires expt, blockNumber, and blockType as inputs.');
+        error('Not enough inputs. Are you running the main code?');
     end
 
-    % Initialize block success flag
-    blockSuccess = true;
+    %% ----------------------- run Initialization -----------------------
+    % Initialize run success flag
+    runSuccess = true;
+
+    % Determine run type for messaging
+    sessionText = sprintf('Session %d of %d', runNumber, expt.nRuns);
+    if strcmp(runType, 'rerun')
+        sessionText = ['Rerun' sessionText];
+    end
 
     %% ----------------------- Define Key Bindings -----------------------
     % Define key codes for triggers and controls
     triggerKey = KbName('5%');      % MRI trigger key
     escapeKey = KbName('ESCAPE');  % Abort experiment
-    rerunKey = KbName('7&');       % Rerun current block
-    nextBlockKey = KbName('6^');   % Proceed to next block
+    proceedKey = KbName('6^');   % Proceed to next run
 
-    % Determine block type for messaging
-    if strcmp(blockType, 'main')
-        sessionText = sprintf('Session %d of %d', blockNumber, expt.nRuns);
-    else
-        sessionText = sprintf('Rerun Session %d of %d', blockNumber, expt.nRuns);
-    end
-
-    %% ----------------------- Start Block -----------------------
+    %% ----------------------- Start run --------------------------------
     try
-        % Wait for the MRI trigger key to start the block
+        % Display wait message
+        DrawFormattedText(expt.window, ['Please wait\n\n' ...
+            sessionText ' will soon begin'], ...
+            'center', 'center', expt.white);
+        Screen('Flip', expt.window);
+
+        % Wait for the MRI trigger key to start the run
         fprintf('Waiting for MRI trigger to start %s...\n', sessionText);
         DisableKeysForKbCheck([]);           % Enable all keys
         KbTriggerWait(triggerKey);           % Wait for the MRI trigger
         DisableKeysForKbCheck(triggerKey);   % Disable the trigger key
 
-        runStartTime = GetSecs;  % Record the start time of the block
+        runStartTime = GetSecs;  % Record the start time of the run
+        Screen('Flip', expt.window);
 
-        %% ----------------------- Countdown Before Block Starts -----------------------
-        countdown = 3;  % Countdown before experiment starts (seconds)
+        %% ----------------------- Countdown Before run Starts -----------------------
+        countdown = 5;  % Countdown before experiment starts (seconds)
         for countdownStep = countdown:-1:1
-            countdownText = sprintf([sessionText '\nStarting in %d...'], countdownStep);
+            countdownText = sprintf([sessionText '\n\nStarting in %d...'], countdownStep);
             DrawFormattedText(expt.window, countdownText, 'center', 'center', expt.white);
             Screen('Flip', expt.window);  % Update the screen with countdown
 
             % ----------------- Add Escape Key Check Here -----------------
             [keyIsDown, ~, keyCode] = KbCheck;
-            if keyIsDown
-                if keyCode(escapeKey)
-                    % Display abort message
-                    abortText = 'Experiment aborted by user during block start.';
-                    DrawFormattedText(expt.window, abortText, 'center', 'center', expt.white);
-                    Screen('Flip', expt.window);
-                    WaitSecs(2);  % Allow time for the message to be read
-
-                    % Clean up resources
-                    fclose(expt.CSVoutput);
-                    sca;  % Close all screens
-
-                    % Throw an error to abort the experiment
-                    error('Experiment aborted by user during block start.');
-                end
+            if keyIsDown && keyCode(escapeKey)
+                abortText = 'Session aborted!';
+                DrawFormattedText(expt.window, abortText, 'center', 'center', expt.white);
+                Screen('Flip', expt.window);
+                WaitSecs(2);
+                runSuccess = false;
+                return;
             end
             % ---------------------------------------------------------------
 
@@ -76,9 +62,9 @@ function blockSuccess = run_RvH_block(expt, blockNumber, blockType)
         Screen('Flip', expt.window);
         WaitSecs(1);
 
-        %% ----------------------- Retrieve Trials for Current Block -----------------------
-        visual = expt.allRuns(blockNumber).visual;
-        audio = expt.allRuns(blockNumber).audio;
+        %% ----------------------- Retrieve Trials for Current run -----------------------
+        visual = expt.allRuns(runNumber).visual;
+        audio = expt.allRuns(runNumber).audio;
 
         %% ----------------------- Trials Loop -----------------------
         for t = 1:expt.trialsPerRun
@@ -91,15 +77,8 @@ function blockSuccess = run_RvH_block(expt, blockNumber, blockType)
             [keyIsDown, ~, keyCode] = KbCheck;
             if keyIsDown
                 if keyCode(escapeKey)
-                    % Abort the experiment
-                    disp('Session aborted by user.');
-                    fclose(expt.CSVoutput);
-                    error('Session aborted by user.');
-                elseif keyCode(rerunKey)
-                    % Mark the current block for rerun
-                    disp('Block aborted. Preparing to rerun.');
-                    blockSuccess = false;
-                    break;  % Exit the current block's trial loop
+                    runSuccess = false;
+                    return;
                 end
             end
 
@@ -198,7 +177,7 @@ function blockSuccess = run_RvH_block(expt, blockNumber, blockType)
 
                 % Generate the filename with zero-padded trial number
                 filename = sprintf('RvH_%s_%d_%02d_%s_%s', ...
-                    expt.participantID, blockNumber, t, ...
+                    expt.participantID, runNumber, t, ...
                     trialType, wavFilename);
 
                 % Full path for the recording
@@ -229,28 +208,30 @@ function blockSuccess = run_RvH_block(expt, blockNumber, blockType)
                 offset, T_trial, T_cross);
         end  % End of trials loop
 
-        %% ----------------------- End of Block Message -----------------------
-        if strcmp(blockType, 'main')
-            endBlockText = sprintf('End of session %d.\nTake a short rest.', blockNumber);
+        %% ----------------------- End of run Message -----------------------
+        if strcmp(runType, 'main')
+            endRunText = sprintf(['End of session %d.\n\n' ...
+                'Take a short rest.'], runNumber);
         else
-            endBlockText = sprintf('End of rerun block %d.\nProceeding...', blockNumber);
+            endRunText = sprintf(['End of rerun run %d.\n\n' ...
+                'Proceeding...'], runNumber);
         end
-        DrawFormattedText(expt.window, endBlockText, 'center', 'center', expt.white);
+        DrawFormattedText(expt.window, endRunText, 'center', 'center', expt.white);
         Screen('Flip', expt.window);
         fprintf('%s completed.\n', sessionText);
         WaitSecs(2);  % Short wait before proceeding
         
         while true
             [keyIsDown, ~, keyCode] = KbCheck;
-            if keyIsDown && keyCode(nextBlockKey)
-                break;  % proceed to the next block
+            if keyIsDown && keyCode(proceedKey)
+                break;  % proceed to the next run
             end
         end
 
     catch ME
-        % Handle any unexpected errors during the block
-        fprintf('Error in run_RvH_block: %s\n', ME.message);
-        blockSuccess = false;
+        % Handle any unexpected errors during the run
+        fprintf('Error in RvHexptRun: %s\n', ME.message);
+        runSuccess = false;
         % Re-throw the error to be caught by the outer function
         rethrow(ME);
     end

@@ -1,25 +1,13 @@
-function run_RvH_finalize(expt)
-    % run_RvH_finalize
-    % -----------------
-    % Handles the end-of-experiment procedures, including displaying the end message,
-    % saving the expt structure, and performing cleanup tasks.
-    %
-    % Parameters:
-    %   expt (struct): Structure containing all experiment-related variables.
-    %
-    % Returns:
-    %   None
+function RvHexptCleanup(expt)
 
     %% ----------------------- Save expt Structure ------------------------
     try
-        exptMatFilename = sprintf('expt_RvH_%s.mat', ...
-            expt.participantID);
-        exptMatFilePath = fullfile(expt.paths.slashChar, ...
-            'logs', exptMatFilename);
+        exptMatFilename = sprintf('RvHexpt%s.mat', expt.participantID);
+        exptMatFilePath = fullfile(expt.logDir, exptMatFilename);
         
         % Save the expt structure
         save(exptMatFilePath, 'expt');
-        fprintf('Experiment structure saved as: %s\n', exptMatFilePath);
+        fprintf('Experiment structure saved: %s\n', exptMatFilePath);
     catch ME
         warning('Experiment:SaveExptFailed', ...
             'Failed to save expt structure: %s', ME.message);
@@ -27,7 +15,7 @@ function run_RvH_finalize(expt)
 
     %% ----------------------- Display End of Experiment Message ----------
     try
-        endExpText = 'Experiment completed.\nThank you!';
+        endExpText = 'Experiment completed.\n\nThank you!';
         DrawFormattedText(expt.window, endExpText, ...
             'center', 'center', expt.white);
         Screen('Flip', expt.window);
@@ -40,7 +28,7 @@ function run_RvH_finalize(expt)
     %% ----------------------- Cleanup ------------------------------------
     try
         fclose(expt.CSVoutput);
-        sca;
+        Screen('CloseAll');
     catch ME
         warning('Experiment:CleanupFailed', ...
             'Error during cleanup: %s', ME.message);
