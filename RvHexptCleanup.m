@@ -1,5 +1,10 @@
 function RvHexptCleanup(expt)
 
+    %% ----------------------- Input Validation -----------------------
+    if nargin < 1
+        error('Not enough inputs. Are you running the main code?');
+    end
+
     %% ----------------------- Save expt Structure ------------------------
     try
         exptMatFilename = sprintf('RvHexpt%s.mat', expt.participantID);

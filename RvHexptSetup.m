@@ -86,8 +86,16 @@ function expt = RvHexptSetup()
     fontSize = 72;
 
     % Experiment parameters
-    Instructions = 'Preparing Experiment...';
+    Instructions = 'Preparing the experiment\n\nPlease wait...';
     InstructionWaitTime = 3;
+    
+    timing.countdown = 5.0;
+    timing.T_a = 0.0;
+    timing.T_b = 2.0;
+    timing.T_c = 10.0;
+    timing.minCross = 3.0;
+    timing.maxCross = 6.0;
+    timing.audioDur = 2.0;
     
     %% ----------------------- Load Task Images ---------------------------
     try
@@ -132,8 +140,8 @@ function expt = RvHexptSetup()
         black = BlackIndex(screenNum);
 
         if ismac
-            winRect = [100, 300, 900, 900];
-            [window, ~] = PsychImaging('OpenWindow', screenNum, black, winRect);
+            [window, ~] = PsychImaging('OpenWindow', screenNum, black, ...
+                [0, 0, 800, 600]);  % Debugging window
         elseif ispc
             [window, ~] = PsychImaging('OpenWindow', screenNum, black);
         else
@@ -162,6 +170,12 @@ function expt = RvHexptSetup()
     fprintf('Textures pre-loaded successfully.\n');
 
 
+    %% ----------------------- Define Key Bindings -----------------------
+    % Define key codes for triggers and controls
+    keys.trigger = KbName('5%');      % MRI trigger key
+    keys.escape = KbName('ESCAPE');  % Abort experiment
+    keys.proceed = KbName('6^');   % Proceed to next run
+    
     %% ----------------------- Display Instructions -----------------------
     try
         DrawFormattedText(window, Instructions, 'center', 'center', white);
@@ -171,6 +185,7 @@ function expt = RvHexptSetup()
     catch ME
         error('Error displaying instructions: %s', ME.message);
     end
+    
     %% ----------------------- Initialize Audio Recorder -----------------------
     % Ensure recording directory exists
     expt.recordingDir = ['.' paths.slashChar 'acousticdata' paths.slashChar];
@@ -195,6 +210,7 @@ function expt = RvHexptSetup()
     expt.fontSize            = fontSize;
     expt.window              = window;
     expt.textures            = textures;
+    expt.keys                = keys;
     expt.audioDir            = audioDir;
     expt.amplifyVolume       = amplifyVolume;
     expt.CSVoutput           = CSVoutput;
@@ -207,9 +223,9 @@ function expt = RvHexptSetup()
     expt.screenNum           = screenNum;
     expt.Instructions        = Instructions;
     expt.InstructionWaitTime = InstructionWaitTime;
-
-    % Initialize Rerun Blocks List
-    expt.reRun = [];
+    expt.iRun = 0;
+    expt.currentRunType = 'main';
+    expt.timing = timing;
 
     %% ----------------------- Save expt Structure ------------------------
     try
@@ -226,5 +242,5 @@ function expt = RvHexptSetup()
             'Failed to save expt structure: %s', ME.message);
     end
 
-    fprintf('Initialization complete.\n');
+    fprintf('Initialization complete!\n');
 end

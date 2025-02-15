@@ -1,239 +1,258 @@
-function runSuccess = RvHexptRun(expt, runNumber, runType)
+function runSuccess = RvHexptRun(expt)
 
     %% ----------------------- Input Validation -----------------------
-    if nargin < 3
+    if nargin < 1
         error('Not enough inputs. Are you running the main code?');
     end
 
-    %% ----------------------- run Initialization -----------------------
-    % Initialize run success flag
+    %% ----------------------- Run Initialization -----------------------
     runSuccess = true;
 
-    % Determine run type for messaging
-    sessionText = sprintf('Session %d of %d', runNumber, expt.nRuns);
-    if strcmp(runType, 'rerun')
-        sessionText = ['Rerun' sessionText];
+    % Prepare text for this run
+    expt.roundText = sprintf('Round %d of %d', expt.iRun, expt.nRuns);
+    if strcmp(expt.currentRunType, 'rerun')
+        expt.roundText = ['Rerun: ' expt.roundText];
     end
 
-    %% ----------------------- Define Key Bindings -----------------------
-    % Define key codes for triggers and controls
-    triggerKey = KbName('5%');      % MRI trigger key
-    escapeKey = KbName('ESCAPE');  % Abort experiment
-    proceedKey = KbName('6^');   % Proceed to next run
+    T_a = expt.timing.T_a;                     % e.g., 0.0
+    T_b = expt.timing.T_b;                     % e.g., 2.0
+    T_c = expt.timing.T_c;                     % e.g., 10.0
+    minCross     = expt.timing.minCross;       % e.g., 3.0
+    maxCross     = expt.timing.maxCross;       % e.g., 6.0
+    audioDur     = expt.timing.audioDur;       % e.g., 2.0
 
     %% ----------------------- Start run --------------------------------
     try
         % Display wait message
-        DrawFormattedText(expt.window, ['Please wait\n\n' ...
-            sessionText ' will soon begin'], ...
-            'center', 'center', expt.white);
+        DrawFormattedText(expt.window, ...
+            ['Please wait\n\n' expt.roundText ' will soon begin'], ...
+             'center', 'center', expt.white);
         Screen('Flip', expt.window);
 
         % Wait for the MRI trigger key to start the run
-        fprintf('Waiting for MRI trigger to start %s...\n', sessionText);
-        DisableKeysForKbCheck([]);           % Enable all keys
-        KbTriggerWait(triggerKey);           % Wait for the MRI trigger
-        DisableKeysForKbCheck(triggerKey);   % Disable the trigger key
+        fprintf('Waiting for MRI trigger to start %s...\n', expt.roundText);
+        DisableKeysForKbCheck([]);                  % Enable all keys
+        KbTriggerWait(expt.keys.trigger);           % Wait for MRI trigger
+        DisableKeysForKbCheck(expt.keys.trigger);   % Disable that key
 
-        runStartTime = GetSecs;  % Record the start time of the run
+        runStartTime = GetSecs;
         Screen('Flip', expt.window);
 
-        %% ----------------------- Countdown Before run Starts -----------------------
-        countdown = 5;  % Countdown before experiment starts (seconds)
-        for countdownStep = countdown:-1:1
-            countdownText = sprintf([sessionText '\n\nStarting in %d...'], countdownStep);
-            DrawFormattedText(expt.window, countdownText, 'center', 'center', expt.white);
-            Screen('Flip', expt.window);  % Update the screen with countdown
+        if runCountdown(expt); runSuccess = false; return; end
+        Screen('Flip', expt.window);  % Clear after countdown
 
-            % ----------------- Add Escape Key Check Here -----------------
-            [keyIsDown, ~, keyCode] = KbCheck;
-            if keyIsDown && keyCode(escapeKey)
-                abortText = 'Session aborted!';
-                DrawFormattedText(expt.window, abortText, 'center', 'center', expt.white);
-                Screen('Flip', expt.window);
-                WaitSecs(2);
-                runSuccess = false;
-                return;
-            end
-            % ---------------------------------------------------------------
+        %% ----------------------- Retrieve Trials for This Run -----------
+        visual = expt.allRuns(expt.iRun).visual;
+        audio = expt.allRuns(expt.iRun).audio;
 
-            WaitSecs(1);  % Wait for 1 second
-        end
-        Screen('Flip', expt.window);
-        WaitSecs(1);
-
-        %% ----------------------- Retrieve Trials for Current run -----------------------
-        visual = expt.allRuns(runNumber).visual;
-        audio = expt.allRuns(runNumber).audio;
-
-        %% ----------------------- Trials Loop -----------------------
+        %% ----------------------- Trials Loop ----------------------------
         for t = 1:expt.trialsPerRun
-            %% ----------------------- Trial Parameters -----------------------
-            trialType = visual{t};
+            % Basic trial info
+            trialType    = visual{t};
             stimulusBase = audio{t};
-            wavFilename = [stimulusBase '.wav'];
+            wavFilename  = [stimulusBase '.wav'];
 
-            %% ----------------------- Check for Special Key Presses -----------------------
-            [keyIsDown, ~, keyCode] = KbCheck;
-            if keyIsDown
-                if keyCode(escapeKey)
-                    runSuccess = false;
-                    return;
-                end
-            end
+            fprintf('Run %d/%d | Trial %d/%d | ', ...
+                expt.iRun, expt.nRuns, t, expt.trialsPerRun);
+            fprintf('Type: %s | Audio File: %s\n', ...
+                trialType, wavFilename);
 
-            %% ----------------------- Trial Start Message -----------------------
-            fprintf('%s | Trial %d/%d started. Type: %s, Audio File: %s\n', ...
-                sessionText, t, expt.trialsPerRun, trialType, wavFilename);
+            % Compute total durations for this trial
+            T_trial = T_a + T_b + T_c;
+            T_cross = minCross + (maxCross - minCross)*rand;  % random cross
 
-            %% ----------------------- Define Timing Parameters -----------------------
-            T_a = 0.0;                     % Initial delay before trial (seconds)
-            T_b = 2.0;                     % Duration of the trial (seconds)
-            T_c = 10.0;                    % Duration of the fixation cross (seconds)
-            T_trial = T_a + T_b + T_c;     % Total duration of the trial
-            T_cross = 0.5 + 4.0 * rand;    % Duration of the fixation cross
-
-            audioDur = 2.0;                % Duration of each audio clip (seconds)
-            audioRep = floor(T_trial / audioDur);  % Repetitions for 'lis' trials
-
-            %% ----------------------- Select and Display Trial Type Icon -----------------------
-            switch trialType
-                case 'con'
-                    currentTexture = expt.textures.iconCon;
-                case 'lis'
-                    currentTexture = expt.textures.iconLis;
-                case 'rep'
-                    currentTexture = expt.textures.iconRep;
-                case 'hum'
-                    currentTexture = expt.textures.iconHum;
-                otherwise
-                    currentTexture = expt.textures.iconCon;  % Fallback to 'con' if undefined
-            end
-
-            % Display the texture without trial info
-            Screen('DrawTexture', expt.window, currentTexture);
-            Screen('Flip', expt.window);
-            WaitSecs(T_a);  % Wait for initial delay
-
-            %% ----------------------- Load and Play Audio Stimulus -----------------------
-            soundFile = fullfile(expt.audioDir, wavFilename);
-
-            % Check if the audio file exists
-            if ~exist(soundFile, 'file')
-                warning('Sound file not found: %s. Skipping trial.', soundFile);
-                continue;  % Skip to the next trial
-            end
-
-            % Read the audio file
-            [sounds, freq] = audioread(soundFile);
-
-            % Ensure audio is exactly 'audioDur' seconds long
-            paddedSamples = round(audioDur * freq);
-            [numSamples, numChannels] = size(sounds);
-
-            if numSamples < paddedSamples
-                % Pad with zeros to reach 'audioDur' seconds
-                sounds = [sounds; zeros(paddedSamples - numSamples, numChannels)];
-            elseif numSamples > paddedSamples
-                % Truncate to exactly 'audioDur' seconds
-                sounds = sounds(1:paddedSamples, :);
-            end
-
-            if strcmp(trialType, 'lis')
-                % For 'lis' trials, repeat the audio to fill trial duration
-                sounds = repmat(sounds, audioRep, 1);
-            end
-
-            % Apply volume amplification
-            sounds = sounds * expt.amplifyVolume;
-
-            % Play the sound using MATLAB's built-in sound function
+            %% ----------------------- Display Trial Type Icon ------------
+            loadVisual(trialType, expt);
+            
+            % Wait T_a
+            if WaitSecsEsc(T_a, expt); runSuccess = false; return; end
+            
+            %% ----------------------- Load and Play Audio Stimulus -------
+            [sounds, freq, loadOK] = loadAudio(stimulusBase, trialType, audioDur, T_trial, expt);
+            if ~loadOK, continue; end  % skip trial if loading failed
+            
             try
-                sound(sounds, freq);  % Play the audio stimulus
+                sound(sounds, freq);
             catch ME
                 warning('AudioPlayback:Failed', ...
-                    'Failed to play audio: %s. Skipping...', ME.message);
-                continue;  % Skip to the next trial
+                    'Failed to play audio: %s. Skipping trial...', ME.message);
+                continue;
             end
 
-            % Record onset time of the trial
+            % Trial onset (relative to run start)
             onset_trial = GetSecs - runStartTime;
 
             %% ----------------------- Start Recording -----------------------
             try
-                record(expt.recObj);  % Start recording
+                record(expt.recObj);
             catch ME
                 warning('AudioRecording:Failed', ...
-                    'Failed to start recording: %s. Continuing without recording...', ME.message);
+                    'Failed to start recording: %s. Continuing without...', ...
+                    ME.message);
             end
 
-            %% ----------------------- Wait for the Duration of the Trial -----------------------
-            WaitSecs(T_trial);
+            % Wait T_b + T_c
+            if WaitSecsEsc(T_b + T_c, expt); runSuccess = false; return; end
 
             %% ----------------------- Stop Recording -----------------------
             try
-                stop(expt.recObj);  % Stop recording
-                audioData = getaudiodata(expt.recObj);  % Retrieve recorded data
+                stop(expt.recObj);
+                audioData = getaudiodata(expt.recObj);
 
-                % Generate the filename with zero-padded trial number
-                filename = sprintf('RvH_%s_%d_%02d_%s_%s', ...
-                    expt.participantID, runNumber, t, ...
-                    trialType, wavFilename);
-
-                % Full path for the recording
-                fullFilePath = fullfile(expt.recordingDir, filename);
-
-                % Save the recorded audio to a WAV file
-                audiowrite(fullFilePath, audioData, expt.recObj.SampleRate);
-                fprintf(['Trial ended.' ...
-                    ' Recorded audio saved to %s\n'], fullFilePath);
+                % Save recording in separate helper
+                saveRecordedAudio(expt, expt.iRun, t, trialType, wavFilename, audioData);
             catch ME
                 warning('AudioRecording:Failed', ...
-                    ['Trial ended. ' ...
-                    'Failed to save recording: %s. ' ...
-                    'Continuing...'], ME.message);
+                    'Failed to save recording: %s. Continuing...', ...
+                    ME.message);
             end
-
 
             %% ----------------------- Display Fixation Cross -----------------------
             DrawFormattedText(expt.window, '+', 'center', 'center', expt.white);
             Screen('Flip', expt.window);
-            onset_cross = GetSecs - runStartTime;  % Record onset of fixation
-            WaitSecs(T_cross);  % Wait for fixation duration
+            onset_cross = GetSecs - runStartTime;
 
-            %% ----------------------- Record Event in Log -----------------------
-            offset = GetSecs - runStartTime;  % Record offset time
+            if WaitSecsEsc(T_cross, expt); runSuccess = false; return; end
+
+            %% ----------------------- Log the Event -----------------------
+            offset = GetSecs - runStartTime;
             fprintf(expt.CSVoutput, '%s,%s,%.3f,%.3f,%.3f,%.3f,%.3f\n', ...
                 trialType, stimulusBase, onset_trial, onset_cross, ...
                 offset, T_trial, T_cross);
-        end  % End of trials loop
+        end % end trials loop
 
-        %% ----------------------- End of run Message -----------------------
-        if strcmp(runType, 'main')
-            endRunText = sprintf(['End of session %d.\n\n' ...
-                'Take a short rest.'], runNumber);
+        %% ----------------------- End of Run Message -----------------------
+        if strcmp(expt.currentRunType, 'main')
+            endRunText = sprintf('End of run %d.\n\nTake a short rest.', expt.iRun);
         else
-            endRunText = sprintf(['End of rerun run %d.\n\n' ...
-                'Proceeding...'], runNumber);
+            endRunText = sprintf('End of rerun run %d.\n\nProceeding...', expt.iRun);
         end
         DrawFormattedText(expt.window, endRunText, 'center', 'center', expt.white);
         Screen('Flip', expt.window);
-        fprintf('%s completed.\n', sessionText);
-        WaitSecs(2);  % Short wait before proceeding
-        
+        fprintf('%s completed.\n\nGreat job!', expt.roundText);
+        WaitSecs(2);
+
+        % Wait for "proceed" key
         while true
             [keyIsDown, ~, keyCode] = KbCheck;
-            if keyIsDown && keyCode(proceedKey)
-                break;  % proceed to the next run
+            if keyIsDown && keyCode(expt.keys.proceed)
+                break;
             end
         end
 
     catch ME
-        % Handle any unexpected errors during the run
         fprintf('Error in RvHexptRun: %s\n', ME.message);
         runSuccess = false;
-        % Re-throw the error to be caught by the outer function
         rethrow(ME);
     end
 
+end
+
+
+%% ----------------------------------------------------------
+%  LOCAL HELPER FUNCTIONS
+%% ----------------------------------------------------------
+function abortDuringTrial = WaitSecsEsc(waitTime, expt)
+    abortDuringTrial = false;
+    startTime = GetSecs;
+    
+    while (GetSecs - startTime) < waitTime
+        [keyIsDown, ~, keyCode] = KbCheck;
+        if keyIsDown && keyCode(expt.keys.escape)
+            abortText = [expt.roundText ' aborted!\n\nPlease wait.'];
+            DrawFormattedText(expt.window, abortText, ...
+                'center', 'center', expt.white);
+            Screen('Flip', expt.window);
+            WaitSecs(1);
+            abortDuringTrial = true;
+            return;  % Return immediately
+        end
+        WaitSecs(0.01);  % Small pause so we don't hog CPU
+    end
+end
+
+function abortDuringCountdown = runCountdown(expt)
+    abortDuringCountdown = false;
+    countdownSeconds = expt.timing.countdown;
+    for secLeft = countdownSeconds:-1:1
+        countdownText = sprintf('%s\n\nStarting in %d...', ...
+            expt.roundText, secLeft);
+        DrawFormattedText(expt.window, countdownText, ...
+            'center', 'center', expt.white);
+        Screen('Flip', expt.window);
+
+        % Use your WaitSecsEsc(...) function to allow ESC checks
+        if WaitSecsEsc(1, expt)
+            sprintf('%s aborted during countdown.', expt.roundText);
+            abortDuringCountdown = true;
+            return;
+        end
+    end
+end
+
+
+function loadVisual(trialType, expt)
+    switch trialType
+        case 'con'
+            currentTexture = expt.textures.iconCon;
+        case 'lis'
+            currentTexture = expt.textures.iconLis;
+        case 'rep'
+            currentTexture = expt.textures.iconRep;
+        case 'hum'
+            currentTexture = expt.textures.iconHum;
+        otherwise
+            currentTexture = expt.textures.iconCon;  % fallback
+    end
+    Screen('DrawTexture', expt.window, currentTexture);
+    Screen('Flip', expt.window);
+end
+
+function [sounds, freq, loadOK] = loadAudio(stimulusBase, trialType, audioDur, T_trial, expt)
+    soundFile = fullfile(expt.audioDir, [stimulusBase, '.wav']);
+
+    sounds = [];
+    freq = [];
+    loadOK = false;
+
+    if ~exist(soundFile, 'file')
+        warning('Sound file not found: %s. Skipping trial.', soundFile);
+        return;  % Return empty
+    end
+
+    % Read the file
+    [sounds, freq] = audioread(soundFile);
+
+    % Pad/truncate to exactly 'audioDur'
+    paddedSamples = round(audioDur * freq);
+    [numSamples, numChannels] = size(sounds);
+
+    if numSamples < paddedSamples
+        sounds = [sounds; zeros(paddedSamples - numSamples, numChannels)];
+    elseif numSamples > paddedSamples
+        sounds = sounds(1:paddedSamples, :);
+    end
+
+    % Repeat for 'lis' trials
+    if strcmp(trialType, 'lis')
+        audioRep = floor(T_trial / audioDur) + 1;
+        sounds = repmat(sounds, audioRep, 1);
+    end
+
+    % Apply volume amplification
+    sounds = sounds * expt.amplifyVolume;
+
+    loadOK = true;
+end
+
+function saveRecordedAudio(expt, iRun, t, trialType, wavFilename, audioData)
+    % Stop recording and save the recorded audio to a WAV file
+    filename = sprintf('RvH_%s_%d_%02d_%s_%s', ...
+                       expt.participantID, iRun, t, trialType, wavFilename);
+
+    fullFilePath = fullfile(expt.recordingDir, filename);
+
+    % Save as WAV
+    audiowrite(fullFilePath, audioData, expt.recObj.SampleRate);
+    fprintf('Trial ended. Recorded audio saved to %s\n', fullFilePath);
 end
